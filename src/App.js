@@ -5,6 +5,8 @@ import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken }
 import { getFirestore, doc, onSnapshot, collection, addDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
+// This is the CRITICAL FIX for the Vercel deployment error.
+// It checks if the special platform variables exist, and if not, uses placeholder values.
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "AIza...", authDomain: "...", projectId: "..." };
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
@@ -30,7 +32,6 @@ const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, i
 
 const MOCK_MARKET_SCAN_RESULTS = [
     generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2, 'Positive', 'Tech Integration', false),
-    // ** Reversal Setup **: High gainer, now showing exhaustion (negative micro-trend) and euphoric sentiment
     generateMockData('CLUSDT', 0.4977, 0.15, -0.5, 'Euphoric', 'Major Exchange Listing', true), 
     generateMockData('NOTUSDT', 0.002366, 0.06, 0.15, 'Positive', 'Roadmap Update', false),   
     generateMockData('ARBUSDT', 0.4485, 0.04, 0.1, 'Positive', null, false), 
@@ -49,13 +50,11 @@ const masterTraderAnalysisEngine = (scanResult) => {
     const trendStrength = closes[closes.length - 1] / closes[0] - 1;
     let direction = null;
 
-    // ** Reversal Hunter Logic **
     if (isGainer && trendStrength < -0.03 && sentiment === 'Euphoric') {
         score += 45;
-        direction = 'SHORT'; // Fading the top gainer
+        direction = 'SHORT'; 
         tier = 1;
     } 
-    // Standard Trend Logic
     else if (trendStrength > 0.05) { score += 20; direction = 'LONG'; } 
     else if (trendStrength < -0.05) { score += 20; direction = 'SHORT'; } 
     else { score -= 15; }
@@ -76,9 +75,8 @@ const masterTraderAnalysisEngine = (scanResult) => {
     const slMultiplier = 1.5; 
     const slDistance = atr * slMultiplier;
     
-    // Estimated Time to Target Calculation
     const priceToTP1 = Math.abs(latest.c - (direction === 'LONG' ? latest.c + slDistance * 1.5 : latest.c - slDistance * 1.5));
-    const hoursToTP1 = (priceToTP1 / atr) * 1; // 1 hour candles
+    const hoursToTP1 = (priceToTP1 / atr) * 1; 
     const estTime = hoursToTP1 < 1 ? `${Math.round(hoursToTP1 * 60)}m` : `${hoursToTP1.toFixed(1)}h`;
 
     return {
@@ -321,7 +319,7 @@ export default function App() {
                 <header className="flex flex-col md:flex-row justify-between items-center mb-4 border-b border-gray-700/50 pb-4">
                     <div className="flex items-center space-x-3 mb-4 md:mb-0">
                         <Target className="w-10 h-10 text-cyan-400 animate-pulse" />
-                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Reversal Hunter Engine v7.0</p> </div>
+                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Reversal Hunter Engine v7.1</p> </div>
                     </div>
                     <div className="text-center md:text-right">
                          <div className="font-mono text-lg">{currentTime.toLocaleDateString()}</div>
@@ -355,7 +353,7 @@ export default function App() {
 
                 <footer className="text-center mt-12 py-6 border-t border-gray-700/50">
                     <p className="text-gray-500 text-sm">For educational and informational purposes only. Trading involves substantial risk.</p>
-                    <p className="text-gray-600 text-xs mt-1">Market Sniper v7.0 - Reversal Hunter Engine</p>
+                    <p className="text-gray-600 text-xs mt-1">Market Sniper v7.1 - Final Deployment Code</p>
                 </footer>
             </main>
             {selectedTrade && <DetailModal trade={selectedTrade} onClose={handleCloseModal} onTakeTrade={handleTakeTrade} />}
