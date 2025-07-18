@@ -166,8 +166,6 @@ const TradeCard = ({ trade, onSelect }) => {
     );
 };
 
-// ** DETAIL MODAL COMPONENT (FIX) **
-// This component was missing in the previous version, causing the build to fail.
 const DetailModal = ({ trade, onClose, onTakeTrade }) => {
     if (!trade) return null;
     const isShort = trade.direction === 'SHORT';
