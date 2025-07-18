@@ -5,14 +5,13 @@ import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken }
 import { getFirestore, doc, onSnapshot, collection, addDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
-// This is the CRITICAL FIX for the Vercel deployment error.
-// It checks if the special platform variables exist, and if not, uses placeholder values.
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "AIza...", authDomain: "...", projectId: "..." };
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
 
 // --- SIMULATED MARKET SCANNER DATABASE ---
-const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, isGainer) => {
+// Reflects the new Professional Trader's Filter. CLUSDT (new, volatile) is removed.
+const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, volume) => {
     const list = [];
     let currentPrice = basePrice;
     for (let i = 0; i < 10; i++) {
@@ -26,23 +25,28 @@ const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, i
     return { 
         success: true, code: "0", msg: "success", 
         data: { pair, list },
-        sentiment, news, isGainer
+        sentiment, news, volume
     };
 };
 
 const MOCK_MARKET_SCAN_RESULTS = [
-    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2, 'Positive', 'Tech Integration', false),
-    generateMockData('CLUSDT', 0.4977, 0.15, -0.5, 'Euphoric', 'Major Exchange Listing', true), 
-    generateMockData('NOTUSDT', 0.002366, 0.06, 0.15, 'Positive', 'Roadmap Update', false),   
-    generateMockData('ARBUSDT', 0.4485, 0.04, 0.1, 'Positive', null, false), 
+    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2, 'Positive', 'Tech Integration', 50), // Volume in millions
+    generateMockData('NOTUSDT', 0.002366, 0.06, 0.15, 'Positive', 'Roadmap Update', 150),   
+    generateMockData('ARBUSDT', 0.4485, 0.04, 0.1, 'Positive', null, 75), 
+    generateMockData('XRPUSDT', 3.30, 0.03, 0.05, 'Neutral', null, 1200),
+    // This coin will be filtered out by the new volume rule
+    generateMockData('LOWVOLUSDT', 1.2, 0.05, 0.3, 'Positive', null, 15), 
 ];
 
 
-// --- MASTER TRADER ANALYSIS ENGINE v7.0 ---
+// --- MASTER TRADER ANALYSIS ENGINE v7.2 ---
 const masterTraderAnalysisEngine = (scanResult) => {
-    const { data, sentiment, news, isGainer } = scanResult;
+    const { data, sentiment, news, volume } = scanResult;
     if (!data || !data.list || data.list.length < 5) return null;
     
+    // ** PROFESSIONAL TRADER'S FILTER **
+    if (volume < 25) return null; // Filter out coins with less than $25M volume
+
     const latest = data.list[data.list.length - 1];
     let score = 50;
     let tier = 3; 
@@ -50,12 +54,7 @@ const masterTraderAnalysisEngine = (scanResult) => {
     const trendStrength = closes[closes.length - 1] / closes[0] - 1;
     let direction = null;
 
-    if (isGainer && trendStrength < -0.03 && sentiment === 'Euphoric') {
-        score += 45;
-        direction = 'SHORT'; 
-        tier = 1;
-    } 
-    else if (trendStrength > 0.05) { score += 20; direction = 'LONG'; } 
+    if (trendStrength > 0.05) { score += 20; direction = 'LONG'; } 
     else if (trendStrength < -0.05) { score += 20; direction = 'SHORT'; } 
     else { score -= 15; }
     
@@ -66,7 +65,9 @@ const masterTraderAnalysisEngine = (scanResult) => {
     if (news && (news.includes('Delisting') || news.includes('Unlock'))) return null;
     if (news && direction === 'LONG') score += 10;
     
-    if (tier !== 1 && score >= 85) {
+    if (score >= 90 && sentiment === 'Positive') {
+        tier = 1; 
+    } else if (score >= 85) {
         tier = 2; 
     }
 
@@ -86,7 +87,7 @@ const masterTraderAnalysisEngine = (scanResult) => {
         tp2: direction === 'LONG' ? latest.c + slDistance * 3 : latest.c - slDistance * 3,
         sl: direction === 'LONG' ? latest.c - slDistance : latest.c + slDistance,
         estTime: estTime,
-        confluence: { trend: isGainer ? 'Reversal Pattern' : (trendStrength > 0 ? 'Bullish' : 'Bearish'), sentiment: sentiment, catalyst: news || 'None' }
+        confluence: { trend: trendStrength > 0 ? 'Bullish' : 'Bearish', sentiment: sentiment, catalyst: news || 'None' }
     };
 };
 
@@ -319,7 +320,7 @@ export default function App() {
                 <header className="flex flex-col md:flex-row justify-between items-center mb-4 border-b border-gray-700/50 pb-4">
                     <div className="flex items-center space-x-3 mb-4 md:mb-0">
                         <Target className="w-10 h-10 text-cyan-400 animate-pulse" />
-                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Reversal Hunter Engine v7.1</p> </div>
+                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Professional Trader's Filter v7.2</p> </div>
                     </div>
                     <div className="text-center md:text-right">
                          <div className="font-mono text-lg">{currentTime.toLocaleDateString()}</div>
@@ -353,7 +354,7 @@ export default function App() {
 
                 <footer className="text-center mt-12 py-6 border-t border-gray-700/50">
                     <p className="text-gray-500 text-sm">For educational and informational purposes only. Trading involves substantial risk.</p>
-                    <p className="text-gray-600 text-xs mt-1">Market Sniper v7.1 - Final Deployment Code</p>
+                    <p className="text-gray-600 text-xs mt-1">Market Sniper v7.2 - Professional Trader's Filter</p>
                 </footer>
             </main>
             {selectedTrade && <DetailModal trade={selectedTrade} onClose={handleCloseModal} onTakeTrade={handleTakeTrade} />}
