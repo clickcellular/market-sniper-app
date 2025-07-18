@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Target, Clock, CheckCircle, XCircle, TrendingUp, TrendingDown, Shield, AlertTriangle, BarChart2, RefreshCw, WifiOff, Server, ToggleLeft, ToggleRight, Zap, FolderOpen, MinusCircle, PlusCircle, Megaphone, Star, Eye } from 'lucide-react';
 
 // --- API Configuration ---
-const API_KEY = 'b78677a9f19c4f1b890a4a920ab2ba48'; // Your API key
+const API_KEY = 'b78677a9f19c4f1b890a4a920ab2ba48';
 const PROXIED_API_URL_BASE = 'https://corsproxy.io/?' + encodeURIComponent('https://open-api.coinglass.com/api/v2/futures/open_interest_ohlc');
 
 // --- SIMULATED MARKET SCANNER DATABASE ---
@@ -21,13 +21,12 @@ const generateMockData = (pair, basePrice, volatility, trend) => {
 };
 
 const MOCK_MARKET_SCAN_RESULTS = [
-    generateMockData('PEPEUSDT', 0.000013477, 0.05, 0.1),
-    generateMockData('NOTUSDT', 0.002366, 0.06, 0.15),
-    generateMockData('1000FLOKIUSDT', 0.13248, 0.07, 0.2),
-    generateMockData('ARBUSDT', 0.4485, 0.04, 0.1), 
-    generateMockData('XRPUSDT', 3.3649, 0.02, 0.05), 
-    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2),
-    generateMockData('MATICUSDT', 0.75, 0.03, 0.25),
+    generateMockData('PEPEUSDT', 0.000013477, 0.05, 0.01), 
+    generateMockData('NOTUSDT', 0.002366, 0.06, 0.02),   
+    generateMockData('1000FLOKIUSDT', 0.13248, 0.07, -0.01),
+    generateMockData('ARBUSDT', 0.4485, 0.04, 0.03),     
+    generateMockData('XRPUSDT', 3.3649, 0.02, 0.01),      
+    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.35),    // A-Grade Setup for Hunter Mode
 ];
 
 
@@ -47,7 +46,6 @@ const calculateConfidence = (scanResult, marketRegime) => {
     else if (trendStrength < -0.05) { score += 25; direction = 'SHORT'; } 
     else { score -= 20; }
     
-    // ATR Calculation (simulated)
     const ranges = data.list.map(c => c.h - c.l);
     const atr = ranges.reduce((a, b) => a + b, 0) / ranges.length;
     const atrPercentage = (atr / latest.c) * 100;
@@ -61,25 +59,25 @@ const calculateConfidence = (scanResult, marketRegime) => {
     if (marketRegime.catalyst && direction === 'LONG') {
         score += 25;
         tier = 1; 
-    } else if (score >= 85) {
+    } else if (score >= 90) { // Tier 2 threshold
         tier = 2; 
     }
 
-    // Predator Protocol Threshold
-    if (marketRegime.name === 'Choppy / Low-Conviction' && score < 95) return null;
-    if (score < 85) return null;
+    // Hunter Mode Threshold
+    if (marketRegime.name === 'Hunter Mode' && score < 90) return null;
 
-    // ** VOLATILITY-ADAPTIVE SL/TP **
+    if (score > 100) score = 100;
+
     const slMultiplier = 1.5; 
     const slDistance = atr * slMultiplier;
 
     return {
-        id: data.pair, symbol: data.pair, direction, confidence: Math.round(score), tier, status: 'PREDATOR WATCH',
+        id: data.pair, symbol: data.pair, direction, confidence: Math.round(score), tier, status: 'HUNTER TARGET',
         entryZone: [latest.c - atr * 0.5, latest.c + atr * 0.2],
         tp1: direction === 'LONG' ? latest.c + slDistance * 1.5 : latest.c - slDistance * 1.5,
         tp2: direction === 'LONG' ? latest.c + slDistance * 3 : latest.c - slDistance * 3,
         sl: direction === 'LONG' ? latest.c - slDistance : latest.c + slDistance,
-        confluence: { trend: direction === 'LONG' ? 'Emerging Uptrend' : 'Emerging Downtrend', volatility: `${atrPercentage.toFixed(2)}% ATR`, regime: marketRegime.name }
+        confluence: { trend: 'Strong Momentum Detected', volatility: `${atrPercentage.toFixed(2)}% ATR`, regime: marketRegime.name }
     };
 };
 
@@ -88,7 +86,7 @@ const transformApiData = (marketScanResults, marketRegime) => {
 };
 
 // --- Helper Components ---
-const StatusIcon = ({ status }) => <Eye className="w-5 h-5 text-cyan-400" />;
+const StatusIcon = ({ status }) => <Target className="w-5 h-5 text-green-400 animate-pulse" />;
 const ConfidenceMeter = ({ value }) => {
     const color = value >= 95 ? 'bg-cyan-500' : 'bg-green-500';
     return ( <div className="w-full bg-gray-700 rounded-full h-2.5"> <div className={`${color} h-2.5 rounded-full`} style={{ width: `${value}%` }}></div> </div> );
@@ -145,7 +143,7 @@ const TradeCard = ({ trade, onSelect }) => {
                 <div className="text-right"> <div className="text-sm text-gray-400">Confidence</div> <div className="text-2xl font-bold text-cyan-400">{trade.confidence}%</div> </div>
             </div>
             <ConfidenceMeter value={trade.confidence} />
-             <div className="flex items-center space-x-2 mt-4 font-semibold text-sm text-cyan-400"> <StatusIcon status={trade.status} /> <span>{trade.status}</span></div>
+             <div className="flex items-center space-x-2 mt-4 font-semibold text-sm text-green-400"> <StatusIcon status={trade.status} /> <span>{trade.status}</span></div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 text-center">
                 <div> <div className="text-sm text-gray-400">Entry Zone</div> <div className="text-md font-mono text-white">{formatPrice(trade.entryZone[0], trade.symbol)} - {formatPrice(trade.entryZone[1], trade.symbol)}</div> </div>
                 <div> <div className="text-sm text-gray-400">Take Profit 1</div> <div className="text-md font-mono text-green-400">{formatPrice(trade.tp1, trade.symbol)}</div> </div>
@@ -204,11 +202,11 @@ const DetailModal = ({ trade, onClose, onTakeTrade }) => {
 
 const MarketRegimeDisplay = ({ regime }) => {
     return (
-        <div className={`mb-6 p-4 rounded-lg flex items-center justify-center space-x-4 border border-dashed border-yellow-500/50 bg-yellow-500/20`}>
-            <Eye className="w-6 h-6 text-yellow-400" />
+        <div className={`mb-6 p-4 rounded-lg flex items-center justify-center space-x-4 border border-dashed border-green-500/50 bg-green-500/20`}>
+            <Target className="w-6 h-6 text-green-400" />
             <div>
-                <h3 className="font-bold text-center text-yellow-300">PREDATOR PROTOCOL ACTIVE</h3>
-                <p className="text-sm text-center text-yellow-400/80">Market Regime: {regime.name}. Confidence threshold raised to 95%. Awaiting A+ setups only.</p>
+                <h3 className="font-bold text-center text-green-300">HUNTER MODE ACTIVE</h3>
+                <p className="text-sm text-center text-green-400/80">Market Regime: {regime.name}. Confidence threshold set to 90%. Scanning for A-Grade setups.</p>
             </div>
         </div>
     );
@@ -224,7 +222,7 @@ export default function App() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [marketRegime, setMarketRegime] = useState({
-        name: 'Choppy / Low-Conviction',
+        name: 'Hunter Mode',
         catalyst: null,
     });
 
@@ -268,7 +266,7 @@ export default function App() {
                 <header className="flex flex-col md:flex-row justify-between items-center mb-4 border-b border-gray-700/50 pb-4">
                     <div className="flex items-center space-x-3 mb-4 md:mb-0">
                         <Target className="w-10 h-10 text-cyan-400 animate-pulse" />
-                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Volatility-Adaptive Engine v4.9</p> </div>
+                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Hunter Mode v5.2</p> </div>
                     </div>
                     <div className="text-center md:text-right">
                          <div className="font-mono text-lg">{currentTime.toLocaleDateString()}</div>
@@ -290,23 +288,23 @@ export default function App() {
                     {openPositions.length > 0 ? (
                         openPositions.map(pos => <PositionRow key={pos.id} position={pos} onRemove={handleRemovePosition} />)
                     ) : (
-                        <div className="text-center py-4 text-gray-500">No open positions. Awaiting A+ signal.</div>
+                        <div className="text-center py-4 text-gray-500">No open positions. Awaiting signal.</div>
                     )}
                 </div>
 
                 <div className="space-y-6">
                     <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-semibold text-gray-300 tracking-wide">High-Conviction Targets (Confidence &gt; 95%)</h2>
+                        <h2 className="text-xl font-semibold text-gray-300 tracking-wide">High-Conviction Targets (Confidence &gt; 90%)</h2>
                         <button onClick={fetchData} disabled={isLoading} className="text-gray-400 hover:text-white disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"> <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} /> </button>
                     </div>
                     {isLoading && <div className="text-center py-10 text-gray-400">Scanning Market...</div>}
-                    {!isLoading && trades.length === 0 && <div className="text-center py-10 text-gray-500">No A+ opportunities detected. System is waiting patiently.</div>}
+                    {!isLoading && trades.length === 0 && <div className="text-center py-10 text-gray-500">No A-Grade opportunities detected. System is hunting.</div>}
                     {!isLoading && trades.map(trade => <TradeCard key={trade.id} trade={trade} onSelect={handleSelectTrade} />)}
                 </div>
 
                 <footer className="text-center mt-12 py-6 border-t border-gray-700/50">
                     <p className="text-gray-500 text-sm">For educational and informational purposes only. Trading involves substantial risk.</p>
-                    <p className="text-gray-600 text-xs mt-1">Market Sniper v4.9 - Volatility-Adaptive Engine</p>
+                    <p className="text-gray-600 text-xs mt-1">Market Sniper v5.2 - Hunter Mode</p>
                 </footer>
             </main>
             <DetailModal trade={selectedTrade} onClose={handleCloseModal} onTakeTrade={handleTakeTrade} />
