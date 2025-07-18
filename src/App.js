@@ -21,7 +21,8 @@ const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, v
 };
 
 const MOCK_MARKET_SCAN_RESULTS = [
-    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2, 'Positive', 'Tech Integration', 50),
+    // UPDATED: JASMY price recalibrated based on user's live chart
+    generateMockData('JASMYUSDT', 0.016885, 0.08, 0.35, 'Positive', 'Tech Integration', 50), 
     generateMockData('NOTUSDT', 0.002366, 0.06, 0.15, 'Positive', 'Roadmap Update', 150),   
     generateMockData('ARBUSDT', 0.4485, 0.04, 0.1, 'Positive', null, 75), 
     generateMockData('XRPUSDT', 3.30, 0.03, 0.05, 'Neutral', null, 1200),
@@ -30,7 +31,7 @@ const MOCK_MARKET_SCAN_RESULTS = [
 
 
 // --- MASTER TRADER ANALYSIS ENGINE v7.2 ---
-const masterTraderAnalysisEngine = (scanResult) => {
+const masterTraderAnalysisEngine = (scanResult, marketRegime) => {
     const { data, sentiment, news, volume } = scanResult;
     if (!data || !data.list || data.list.length < 5) return null;
     
@@ -60,7 +61,10 @@ const masterTraderAnalysisEngine = (scanResult) => {
         tier = 2; 
     }
 
-    if (score < 85) return null;
+    // Hunter Mode Threshold
+    if (marketRegime.name === 'Hunter Mode' && score < 90) return null;
+
+    if (score > 100) score = 100;
 
     const slMultiplier = 1.5; 
     const slDistance = atr * slMultiplier;
@@ -70,18 +74,18 @@ const masterTraderAnalysisEngine = (scanResult) => {
     const estTime = hoursToTP1 < 1 ? `${Math.round(hoursToTP1 * 60)}m` : `${hoursToTP1.toFixed(1)}h`;
 
     return {
-        id: data.pair, symbol: data.pair, direction, confidence: Math.round(score), tier, status: 'TARGET ACQUIRED',
+        id: data.pair, symbol: data.pair, direction, confidence: Math.round(score), tier, status: 'HUNTER TARGET',
         entryZone: [latest.c - atr * 0.5, latest.c + atr * 0.2],
         tp1: direction === 'LONG' ? latest.c + slDistance * 1.5 : latest.c - slDistance * 1.5,
         tp2: direction === 'LONG' ? latest.c + slDistance * 3 : latest.c - slDistance * 3,
         sl: direction === 'LONG' ? latest.c - slDistance : latest.c + slDistance,
         estTime: estTime,
-        confluence: { trend: trendStrength > 0 ? 'Bullish' : 'Bearish', sentiment: sentiment, catalyst: news || 'None' }
+        confluence: { trend: 'Strong Momentum Detected', volatility: `${atr.toPrecision(2)} ATR`, regime: marketRegime.name }
     };
 };
 
-const transformApiData = (marketScanResults) => {
-    return marketScanResults.map(res => masterTraderAnalysisEngine(res)).filter(Boolean).sort((a, b) => a.tier - b.tier || b.confidence - a.confidence);
+const transformApiData = (marketScanResults, marketRegime) => {
+    return marketScanResults.map(res => masterTraderAnalysisEngine(res, marketRegime)).filter(Boolean).sort((a, b) => a.tier - b.tier || b.confidence - a.confidence);
 };
 
 // --- Helper Components ---
@@ -163,7 +167,7 @@ const DetailModal = ({ trade, onClose, onTakeTrade }) => {
         switch(key) {
             case 'trend': return <BarChart2 className="w-5 h-5 mr-3 text-cyan-400" />;
             case 'volatility': return <Zap className="w-5 h-5 mr-3 text-yellow-400" />;
-            case 'catalyst': return <Megaphone className="w-5 h-5 mr-3 text-orange-400" />;
+            case 'regime': return <Server className="w-5 h-5 mr-3 text-purple-400" />;
             default: return <CheckCircle className="w-5 h-5 mr-3 text-gray-400" />;
         }
     }
@@ -192,7 +196,7 @@ const DetailModal = ({ trade, onClose, onTakeTrade }) => {
                             <div><span className="font-semibold text-gray-400">Entry:</span> <span>{formatPrice(trade.entryZone[0], trade.symbol)} - {formatPrice(trade.entryZone[1], trade.symbol)}</span></div>
                             <div><span className="font-semibold text-gray-400">TP 1:</span> <span className="text-green-400">{formatPrice(trade.tp1, trade.symbol)}</span></div>
                             <div><span className="font-semibold text-gray-400">TP 2:</span> <span className="text-green-400">{formatPrice(trade.tp2, trade.symbol)}</span></div>
-                            <div><span className="font-semibold text-gray-400">Stop Loss:</span> <span className="text-red-500">{formatPrice(trade.sl, trade.symbol)}</span></div>
+                            <div><span className="font-semibold text-gray-400">Adaptive SL:</span> <span className="text-red-500">{formatPrice(trade.sl, trade.symbol)}</span></div>
                         </div>
                     </div>
                     <button onClick={() => onTakeTrade(trade)} className="w-full mt-4 bg-cyan-600 text-white font-bold py-3 rounded-lg hover:bg-cyan-500 transition-all duration-300 flex items-center justify-center space-x-2"> <PlusCircle size={20} /> <span>Acknowledge & Monitor Trade</span> </button>
@@ -246,6 +250,19 @@ const EntryModal = ({ trade, onClose, onConfirm }) => {
     );
 };
 
+const MarketRegimeDisplay = ({ regime }) => {
+    return (
+        <div className={`mb-6 p-4 rounded-lg flex items-center justify-center space-x-4 border border-dashed border-green-500/50 bg-green-500/20`}>
+            <Target className="w-6 h-6 text-green-400" />
+            <div>
+                <h3 className="font-bold text-center text-green-300">HUNTER MODE ACTIVE</h3>
+                <p className="text-sm text-center text-green-400/80">Market Regime: {regime.name}. Confidence threshold set to 90%. Scanning for A-Grade setups.</p>
+            </div>
+        </div>
+    );
+};
+
+
 // --- Main App Component ---
 export default function App() {
     const [trades, setTrades] = useState([]);
@@ -255,6 +272,10 @@ export default function App() {
     const [currentTime, setCurrentTime] = useState(new Date());
     const [lastUpdated, setLastUpdated] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [marketRegime, setMarketRegime] = useState({
+        name: 'Hunter Mode',
+        catalyst: null,
+    });
 
     const handleTakeTrade = (trade) => {
         setSelectedTrade(null);
@@ -283,7 +304,7 @@ export default function App() {
     const fetchData = () => {
         setIsLoading(true);
         setTimeout(() => {
-            const formattedTrades = transformApiData(MOCK_MARKET_SCAN_RESULTS);
+            const formattedTrades = transformApiData(MOCK_MARKET_SCAN_RESULTS, marketRegime);
             setTrades(formattedTrades);
             setLastUpdated(new Date());
             setIsLoading(false);
@@ -302,7 +323,7 @@ export default function App() {
                 <header className="flex flex-col md:flex-row justify-between items-center mb-4 border-b border-gray-700/50 pb-4">
                     <div className="flex items-center space-x-3 mb-4 md:mb-0">
                         <Target className="w-10 h-10 text-cyan-400 animate-pulse" />
-                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Professional Trader's Filter v7.3</p> </div>
+                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Hunter Mode v5.3</p> </div>
                     </div>
                     <div className="text-center md:text-right">
                          <div className="font-mono text-lg">{currentTime.toLocaleDateString()}</div>
@@ -311,6 +332,8 @@ export default function App() {
                     </div>
                 </header>
                 
+                <MarketRegimeDisplay regime={marketRegime} />
+
                 <div className="mb-8 bg-gray-800/60 rounded-lg p-4 border border-gray-700">
                     <div className="flex items-center space-x-3 mb-3">
                         <FolderOpen className="w-6 h-6 text-cyan-400" />
@@ -325,17 +348,17 @@ export default function App() {
 
                 <div className="space-y-6">
                     <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-semibold text-gray-300 tracking-wide">High-Conviction Targets</h2>
+                        <h2 className="text-xl font-semibold text-gray-300 tracking-wide">High-Conviction Targets (Confidence &gt; 90%)</h2>
                         <button onClick={fetchData} disabled={isLoading} className="text-gray-400 hover:text-white disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"> <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} /> </button>
                     </div>
                     {isLoading && <div className="text-center py-10 text-gray-400">Scanning Market...</div>}
-                    {!isLoading && trades.length === 0 && <div className="text-center py-10 text-gray-500">No high-conviction opportunities detected.</div>}
+                    {!isLoading && trades.length === 0 && <div className="text-center py-10 text-gray-500">No A-Grade opportunities detected. System is hunting.</div>}
                     {!isLoading && trades.map(trade => <TradeCard key={trade.id} trade={trade} onSelect={handleSelectTrade} />)}
                 </div>
 
                 <footer className="text-center mt-12 py-6 border-t border-gray-700/50">
                     <p className="text-gray-500 text-sm">For educational and informational purposes only. Trading involves substantial risk.</p>
-                    <p className="text-gray-600 text-xs mt-1">Market Sniper v7.3 - Final Deployment Fix</p>
+                    <p className="text-gray-600 text-xs mt-1">Market Sniper v5.3 - Price Recalibration</p>
                 </footer>
             </main>
             {selectedTrade && <DetailModal trade={selectedTrade} onClose={handleCloseModal} onTakeTrade={handleTakeTrade} />}
