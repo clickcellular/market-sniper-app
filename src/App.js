@@ -12,6 +12,7 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
 
 // --- SIMULATED MARKET SCANNER DATABASE ---
+// Reflects the new Professional Trader's Filter. CLUSDT (new, volatile) is removed.
 const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, volume) => {
     const list = [];
     let currentPrice = basePrice;
@@ -31,10 +32,11 @@ const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, v
 };
 
 const MOCK_MARKET_SCAN_RESULTS = [
-    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2, 'Positive', 'Tech Integration', 50),
+    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2, 'Positive', 'Tech Integration', 50), // Volume in millions
     generateMockData('NOTUSDT', 0.002366, 0.06, 0.15, 'Positive', 'Roadmap Update', 150),   
     generateMockData('ARBUSDT', 0.4485, 0.04, 0.1, 'Positive', null, 75), 
     generateMockData('XRPUSDT', 3.30, 0.03, 0.05, 'Neutral', null, 1200),
+    // This coin will be filtered out by the new volume rule
     generateMockData('LOWVOLUSDT', 1.2, 0.05, 0.3, 'Positive', null, 15), 
 ];
 
@@ -44,7 +46,8 @@ const masterTraderAnalysisEngine = (scanResult) => {
     const { data, sentiment, news, volume } = scanResult;
     if (!data || !data.list || data.list.length < 5) return null;
     
-    if (volume < 25) return null;
+    // ** PROFESSIONAL TRADER'S FILTER **
+    if (volume < 25) return null; // Filter out coins with less than $25M volume
 
     const latest = data.list[data.list.length - 1];
     let score = 50;
@@ -366,7 +369,7 @@ export default function App() {
                 <header className="flex flex-col md:flex-row justify-between items-center mb-4 border-b border-gray-700/50 pb-4">
                     <div className="flex items-center space-x-3 mb-4 md:mb-0">
                         <Target className="w-10 h-10 text-cyan-400 animate-pulse" />
-                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Professional Trader's Filter v7.2</p> </div>
+                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Professional Trader's Filter v7.3</p> </div>
                     </div>
                     <div className="text-center md:text-right">
                          <div className="font-mono text-lg">{currentTime.toLocaleDateString()}</div>
@@ -400,7 +403,7 @@ export default function App() {
 
                 <footer className="text-center mt-12 py-6 border-t border-gray-700/50">
                     <p className="text-gray-500 text-sm">For educational and informational purposes only. Trading involves substantial risk.</p>
-                    <p className="text-gray-600 text-xs mt-1">Market Sniper v7.2 - Professional Trader's Filter</p>
+                    <p className="text-gray-600 text-xs mt-1">Market Sniper v7.3 - Final Deployment Fix</p>
                 </footer>
             </main>
             {selectedTrade && <DetailModal trade={selectedTrade} onClose={handleCloseModal} onTakeTrade={handleTakeTrade} />}
