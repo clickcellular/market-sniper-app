@@ -12,7 +12,6 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
 
 // --- SIMULATED MARKET SCANNER DATABASE ---
-// Reflects the new Professional Trader's Filter. CLUSDT (new, volatile) is removed.
 const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, volume) => {
     const list = [];
     let currentPrice = basePrice;
@@ -32,11 +31,10 @@ const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, v
 };
 
 const MOCK_MARKET_SCAN_RESULTS = [
-    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2, 'Positive', 'Tech Integration', 50), // Volume in millions
+    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2, 'Positive', 'Tech Integration', 50),
     generateMockData('NOTUSDT', 0.002366, 0.06, 0.15, 'Positive', 'Roadmap Update', 150),   
     generateMockData('ARBUSDT', 0.4485, 0.04, 0.1, 'Positive', null, 75), 
     generateMockData('XRPUSDT', 3.30, 0.03, 0.05, 'Neutral', null, 1200),
-    // This coin will be filtered out by the new volume rule
     generateMockData('LOWVOLUSDT', 1.2, 0.05, 0.3, 'Positive', null, 15), 
 ];
 
@@ -46,8 +44,7 @@ const masterTraderAnalysisEngine = (scanResult) => {
     const { data, sentiment, news, volume } = scanResult;
     if (!data || !data.list || data.list.length < 5) return null;
     
-    // ** PROFESSIONAL TRADER'S FILTER **
-    if (volume < 25) return null; // Filter out coins with less than $25M volume
+    if (volume < 25) return null;
 
     const latest = data.list[data.list.length - 1];
     let score = 50;
@@ -168,6 +165,55 @@ const TradeCard = ({ trade, onSelect }) => {
         </div>
     );
 };
+
+// ** DETAIL MODAL COMPONENT (FIX) **
+// This component was missing in the previous version, causing the build to fail.
+const DetailModal = ({ trade, onClose, onTakeTrade }) => {
+    if (!trade) return null;
+    const isShort = trade.direction === 'SHORT';
+    const getConfluenceIcon = (key) => {
+        switch(key) {
+            case 'trend': return <BarChart2 className="w-5 h-5 mr-3 text-cyan-400" />;
+            case 'volatility': return <Zap className="w-5 h-5 mr-3 text-yellow-400" />;
+            case 'catalyst': return <Megaphone className="w-5 h-5 mr-3 text-orange-400" />;
+            default: return <CheckCircle className="w-5 h-5 mr-3 text-gray-400" />;
+        }
+    }
+    return (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={onClose}>
+            <div className="bg-gray-900 border border-cyan-500 rounded-2xl shadow-2xl w-full max-w-lg p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center border-b border-gray-700 pb-3 mb-4">
+                    <div className="flex items-center space-x-3"> {isShort ? <TrendingDown className="w-8 h-8 text-red-500" /> : <TrendingUp className="w-8 h-8 text-green-500" />} <h2 className="text-2xl font-bold text-white">{trade.symbol.replace('USDT','')} - {trade.direction}</h2> </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors"> <XCircle size={24} /> </button>
+                </div>
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between bg-gray-800 p-4 rounded-lg">
+                        <div>
+                            <div className="text-gray-300 text-lg">Confidence Score</div>
+                            <div className="text-2xl font-bold text-cyan-400">{trade.confidence}%</div>
+                        </div>
+                        <TierBadge tier={trade.tier} />
+                    </div>
+                    <div className="bg-gray-800 p-4 rounded-lg">
+                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Confluence Factors</h3>
+                        <ul className="space-y-2 text-gray-200"> {Object.entries(trade.confluence).map(([key, value]) => ( <li key={key} className="flex items-center"> {getConfluenceIcon(key)} <span className="capitalize font-semibold w-28">{key}:</span> <span>{value}</span> </li> ))} </ul>
+                    </div>
+                    <div className="bg-gray-800 p-4 rounded-lg">
+                         <h3 className="text-lg font-semibold text-cyan-400 mb-3">Trade Parameters</h3>
+                        <div className="grid grid-cols-2 gap-3 font-mono">
+                            <div><span className="font-semibold text-gray-400">Entry:</span> <span>{formatPrice(trade.entryZone[0], trade.symbol)} - {formatPrice(trade.entryZone[1], trade.symbol)}</span></div>
+                            <div><span className="font-semibold text-gray-400">TP 1:</span> <span className="text-green-400">{formatPrice(trade.tp1, trade.symbol)}</span></div>
+                            <div><span className="font-semibold text-gray-400">TP 2:</span> <span className="text-green-400">{formatPrice(trade.tp2, trade.symbol)}</span></div>
+                            <div><span className="font-semibold text-gray-400">Stop Loss:</span> <span className="text-red-500">{formatPrice(trade.sl, trade.symbol)}</span></div>
+                        </div>
+                    </div>
+                    <button onClick={() => onTakeTrade(trade)} className="w-full mt-4 bg-cyan-600 text-white font-bold py-3 rounded-lg hover:bg-cyan-500 transition-all duration-300 flex items-center justify-center space-x-2"> <PlusCircle size={20} /> <span>Acknowledge & Monitor Trade</span> </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const EntryModal = ({ trade, onClose, onConfirm }) => {
     const [entryPrice, setEntryPrice] = useState(trade.entryZone[0].toFixed(5));
