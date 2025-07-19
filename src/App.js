@@ -1,365 +1,233 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Target, Clock, CheckCircle, XCircle, TrendingUp, TrendingDown, Shield, AlertTriangle, BarChart2, RefreshCw, WifiOff, Server, ToggleLeft, ToggleRight, Zap, FolderOpen, MinusCircle, PlusCircle, Megaphone, Star, Eye, LogIn } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, onSnapshot, collection, addDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-
-// --- Firebase Configuration ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "AIza...", authDomain: "...", projectId: "..." };
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
-
-// --- SIMULATED MARKET SCANNER DATABASE ---
-const generateMockData = (pair, basePrice, volatility, trend, sentiment, news, isGainer) => {
-    const list = [];
-    let currentPrice = basePrice;
-    for (let i = 0; i < 10; i++) {
-        const open = currentPrice;
-        const high = open * (1 + (Math.random() * volatility) + (trend * 0.01));
-        const low = open * (1 - (Math.random() * volatility));
-        const close = (high + low) / 2 + (trend * open * volatility * 0.5);
-        currentPrice = close;
-        list.push({ t: Date.now() - (10 - i) * 3600000, o: open, h: high, l: low, c: close });
-    }
-    return { 
-        success: true, code: "0", msg: "success", 
-        data: { pair, list },
-        sentiment, news, isGainer
-    };
-};
-
-const MOCK_MARKET_SCAN_RESULTS = [
-    generateMockData('JASMYUSDT', 0.0165, 0.08, 0.2, 'Positive', 'Tech Integration', false),
-    // ** Reversal Setup **: High gainer, now showing exhaustion (negative micro-trend) and euphoric sentiment
-    generateMockData('CLUSDT', 0.4977, 0.15, -0.5, 'Euphoric', 'Major Exchange Listing', true), 
-    generateMockData('NOTUSDT', 0.002366, 0.06, 0.15, 'Positive', 'Roadmap Update', false),   
-    generateMockData('ARBUSDT', 0.4485, 0.04, 0.1, 'Positive', null, false), 
-];
-
-
-// --- MASTER TRADER ANALYSIS ENGINE v7.0 ---
-const masterTraderAnalysisEngine = (scanResult) => {
-    const { data, sentiment, news, isGainer } = scanResult;
-    if (!data || !data.list || data.list.length < 5) return null;
-    
-    const latest = data.list[data.list.length - 1];
-    let score = 50;
-    let tier = 3; 
-    const closes = data.list.slice(-5).map(c => c.c);
-    const trendStrength = closes[closes.length - 1] / closes[0] - 1;
-    let direction = null;
-
-    // ** Reversal Hunter Logic **
-    if (isGainer && trendStrength < -0.03 && sentiment === 'Euphoric') {
-        score += 45;
-        direction = 'SHORT'; // Fading the top gainer
-        tier = 1;
-    } 
-    // Standard Trend Logic
-    else if (trendStrength > 0.05) { score += 20; direction = 'LONG'; } 
-    else if (trendStrength < -0.05) { score += 20; direction = 'SHORT'; } 
-    else { score -= 15; }
-    
-    const ranges = data.list.map(c => c.h - c.l);
-    const atr = ranges.reduce((a, b) => a + b, 0) / ranges.length;
-    
-    if (sentiment === 'Positive') score += 15;
-    if (news && (news.includes('Delisting') || news.includes('Unlock'))) return null;
-    if (news && direction === 'LONG') score += 10;
-    
-    if (tier !== 1 && score >= 85) {
-        tier = 2; 
-    }
-
-    if (score < 85) return null;
-
-    const slMultiplier = 1.5; 
-    const slDistance = atr * slMultiplier;
-    
-    // Estimated Time to Target Calculation
-    const priceToTP1 = Math.abs(latest.c - (direction === 'LONG' ? latest.c + slDistance * 1.5 : latest.c - slDistance * 1.5));
-    const hoursToTP1 = (priceToTP1 / atr) * 1; // 1 hour candles
-    const estTime = hoursToTP1 < 1 ? `${Math.round(hoursToTP1 * 60)}m` : `${hoursToTP1.toFixed(1)}h`;
-
-    return {
-        id: data.pair, symbol: data.pair, direction, confidence: Math.round(score), tier, status: 'TARGET ACQUIRED',
-        entryZone: [latest.c - atr * 0.5, latest.c + atr * 0.2],
-        tp1: direction === 'LONG' ? latest.c + slDistance * 1.5 : latest.c - slDistance * 1.5,
-        tp2: direction === 'LONG' ? latest.c + slDistance * 3 : latest.c - slDistance * 3,
-        sl: direction === 'LONG' ? latest.c - slDistance : latest.c + slDistance,
-        estTime: estTime,
-        confluence: { trend: isGainer ? 'Reversal Pattern' : (trendStrength > 0 ? 'Bullish' : 'Bearish'), sentiment: sentiment, catalyst: news || 'None' }
-    };
-};
-
-const transformApiData = (marketScanResults) => {
-    return marketScanResults.map(res => masterTraderAnalysisEngine(res)).filter(Boolean).sort((a, b) => a.tier - b.tier || b.confidence - a.confidence);
-};
+import React, { useState, useEffect } from 'react';
 
 // --- Helper Components ---
-const StatusIcon = ({ status }) => <Target className="w-5 h-5 text-green-400 animate-pulse" />;
-const ConfidenceMeter = ({ value }) => {
-    const color = value >= 95 ? 'bg-cyan-500' : 'bg-green-500';
-    return ( <div className="w-full bg-gray-700 rounded-full h-2.5"> <div className={`${color} h-2.5 rounded-full`} style={{ width: `${value}%` }}></div> </div> );
-};
 
-const formatPrice = (price, symbol = "") => {
-    if (typeof price !== 'number' || isNaN(price)) return '0.00';
-    if (price > 0 && price < 0.01) {
-        return price.toPrecision(4);
+// Icon for Long signal
+const LongIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 4L12 20" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M18 10L12 4L6 10" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+// Icon for Short signal
+const ShortIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 20L12 4" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M6 14L12 20L18 14" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+// Icon for the alert/risk notes
+const AlertIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 17C11.45 17 11 16.55 11 16V12C11 11.45 11.45 11 12 11C12.55 11 13 11.45 13 12V16C13 16.55 12.55 17 12 17ZM13 9H11V7H13V9Z" fill="currentColor"/>
+    </svg>
+);
+
+// --- Mock API Data ---
+
+// This function simulates a network request to a backend that would perform
+// the complex analysis using the CoinGlass API and return the signals.
+const fetchSignalsFromAPI = () => {
+  const mockSignals = [
+    {
+      symbol: "XTZ/USDT",
+      direction: "LONG",
+      entryZone: "$0.815 - $0.820",
+      stopLoss: "$0.795",
+      takeProfitZone: "TP1: $0.855, TP2: $0.880",
+      confidence: 9.5,
+      riskNote: `"Bias Confirmed: LONG" - Momentum is strong and consistent across all key timeframes.`,
+      reason: "Structural Breakout & Volume Confirmation: XTZ is exhibiting a powerful trend continuation with massive volume, signaling strong buying pressure."
+    },
+    {
+      symbol: "FTT/USDT",
+      direction: "SHORT",
+      entryZone: "$1.100 - $1.115",
+      stopLoss: "$1.155",
+      takeProfitZone: "TP1: $1.020, TP2: $0.950",
+      confidence: 9.6,
+      riskNote: `"Dump Risk Alert: LONG → SHORT trap" - The coin is baiting longs on HTF while showing clear distribution on LTF.`,
+      reason: "Exhaustion & Reversal: Overextended on HTF with a catastrophic drop on the 5-min chart. CVD has sharply diverged from price."
+    },
+    {
+      symbol: "CROSS/USDT",
+      direction: "LONG",
+      entryZone: "$0.3130 - $0.3150",
+      stopLoss: "$0.3050",
+      takeProfitZone: "TP1: $0.3250, TP2: $0.3350",
+      confidence: 9.5,
+      riskNote: `"Reversal Alert: SHORT → LONG reversal" - Primary trend is bearish, but weakening downside momentum suggests a high probability of a relief bounce.`,
+      reason: "Oversold Condition & Bounce Signal: Significant drop makes further downside less probable. Divergence between short-term selling and longer-term buying support."
+    },
+    {
+      symbol: "HAEDAL/USDT",
+      direction: "SHORT",
+      entryZone: "$0.1750 - $0.1765",
+      stopLoss: "$0.1810",
+      takeProfitZone: "TP1: $0.1650, TP2: $0.1580",
+      confidence: 9.7,
+      riskNote: `"Bias Confirmed: SHORT" - Asset is in a confirmed, high-velocity downtrend. The recent minor bounce is a low-volume fakeout.`,
+      reason: "Confirmed Downtrend & Fakeout Bounce: #1 loser on 4H and 1H lists. A minor 5-min gain was a classic liquidity grab/bull trap."
     }
-    return price.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-}
+  ];
 
-const PositionRow = ({ position, onRemove }) => {
-    const isShort = position.direction === 'SHORT';
-    const pnl = isShort ? (position.entryPrice - position.currentPrice) * position.quantity : (position.currentPrice - position.entryPrice) * position.quantity;
-    const isProfit = pnl >= 0;
-
-    return (
-        <div className="grid grid-cols-5 gap-4 items-center text-sm p-3 border-b border-gray-700/50">
-            <div className={`font-bold ${isShort ? 'text-red-400' : 'text-green-400'}`}>{position.symbol.replace('USDT', '')} {position.direction}</div>
-            <div className="font-mono">{formatPrice(position.entryPrice, position.symbol)}</div>
-            <div className="font-mono">{formatPrice(position.currentPrice, position.symbol)}</div>
-            <div className={`font-mono font-bold ${isProfit ? 'text-green-500' : 'text-red-500'}`}>{pnl.toFixed(2)} USDT</div>
-            <button onClick={() => onRemove(position.id)} className="text-gray-500 hover:text-white justify-self-end"><MinusCircle size={18} /></button>
-        </div>
-    );
+  console.log("Fetching new signals...");
+  return new Promise(resolve => {
+    setTimeout(() => {
+      console.log("Signals received.");
+      resolve(mockSignals);
+    }, 1500); // Simulate a 1.5-second network delay
+  });
 };
 
-const TierBadge = ({ tier }) => {
-    const tierStyles = {
-        1: 'bg-cyan-500/20 text-cyan-400 border-cyan-500',
-        2: 'bg-green-500/20 text-green-400 border-green-500',
-    };
-    return (
-        <div className={`flex items-center space-x-1 px-2 py-1 rounded-md border text-xs font-bold ${tierStyles[tier]}`}>
-            <Star className="w-3 h-3" />
-            <span>TIER {tier}</span>
+
+// --- Components ---
+
+const Header = () => {
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <header className="bg-gray-900 text-white p-4 shadow-lg border-b border-gray-700">
+      <div className="container mx-auto flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold tracking-wider">Market Sniper <span className="text-cyan-400">v5.4</span></h1>
+          <p className="text-sm text-gray-400">High-Confluence Trading Signals</p>
         </div>
-    );
+        <div className="text-right">
+          <p className="text-lg font-mono">{currentTime.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          <p className="text-md font-mono text-gray-300">{currentTime.toLocaleTimeString()}</p>
+        </div>
+      </div>
+    </header>
+  );
 };
 
-const TradeCard = ({ trade, onSelect }) => {
-    const isShort = trade.direction === 'SHORT';
-    const cardBorderColor = {1: 'border-cyan-500', 2: 'border-green-500'}[trade.tier];
-    return (
-        <div className={`bg-gray-800/50 backdrop-blur-sm border ${cardBorderColor} rounded-2xl shadow-lg p-5 transition-all duration-300 hover:shadow-cyan-400/30 hover:border-cyan-400 cursor-pointer`} onClick={() => onSelect(trade)}>
-            <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center space-x-3">
-                    {isShort ? <TrendingDown className="w-8 h-8 text-red-500" /> : <TrendingUp className="w-8 h-8 text-green-500" />}
-                    <span className="text-2xl font-bold text-white">{trade.symbol.replace('USDT', '')}</span>
-                    <TierBadge tier={trade.tier} />
-                </div>
-                <div className="text-right"> <div className="text-sm text-gray-400">Confidence</div> <div className="text-2xl font-bold text-cyan-400">{trade.confidence}%</div> </div>
+const SignalCard = ({ signal }) => {
+  const isLong = signal.direction === 'LONG';
+  const confidenceColor = signal.confidence > 9.5 ? 'bg-green-500' : 'bg-yellow-500';
+  const riskColor = signal.riskNote.includes('Reversal') ? 'text-yellow-400' : (isLong ? 'text-green-400' : 'text-red-400');
+
+  return (
+    <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden transform hover:-translate-y-1 transition-transform duration-300 ease-in-out">
+      {/* Card Header */}
+      <div className={`p-4 flex justify-between items-center border-b border-gray-700 ${isLong ? 'bg-green-900/20' : 'bg-red-900/20'}`}>
+        <div className="flex items-center space-x-3">
+          {isLong ? <LongIcon /> : <ShortIcon />}
+          <h2 className="text-2xl font-bold text-white">{signal.symbol}</h2>
+        </div>
+        <span className={`px-4 py-1 text-sm font-bold rounded-full ${isLong ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+          {signal.direction}
+        </span>
+      </div>
+
+      {/* Card Body */}
+      <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-300">
+        <div className="space-y-3">
+          <div className="flex justify-between items-baseline">
+            <span className="font-semibold text-gray-400">Entry Zone:</span>
+            <span className="font-mono text-white bg-gray-700 px-2 py-1 rounded">{signal.entryZone}</span>
+          </div>
+          <div className="flex justify-between items-baseline">
+            <span className="font-semibold text-gray-400">Stop Loss:</span>
+            <span className="font-mono text-white bg-gray-700 px-2 py-1 rounded">{signal.stopLoss}</span>
+          </div>
+          <div className="flex justify-between items-baseline">
+            <span className="font-semibold text-gray-400">Take Profit:</span>
+            <span className="font-mono text-white bg-gray-700 px-2 py-1 rounded">{signal.takeProfitZone}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col justify-center items-center bg-gray-900/50 p-3 rounded-md">
+            <span className="text-sm font-semibold text-gray-400 mb-2">Confidence Level</span>
+            <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
+                <div className={`${confidenceColor} h-4 rounded-full`} style={{ width: `${(signal.confidence / 10) * 100}%` }}></div>
             </div>
-            <ConfidenceMeter value={trade.confidence} />
-             <div className="flex items-center space-x-4 mt-4 font-semibold text-sm text-green-400"> 
-                <div className="flex items-center space-x-2"><StatusIcon status={trade.status} /> <span>{trade.status}</span></div>
-                <div className="flex items-center space-x-2 text-gray-400"><Clock size={16} /> <span>TP1 Est: ~{trade.estTime}</span></div>
-             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 text-center">
-                <div> <div className="text-sm text-gray-400">Entry Zone</div> <div className="text-md font-mono text-white">{formatPrice(trade.entryZone[0], trade.symbol)} - {formatPrice(trade.entryZone[1], trade.symbol)}</div> </div>
-                <div> <div className="text-sm text-gray-400">Take Profit 1</div> <div className="text-md font-mono text-green-400">{formatPrice(trade.tp1, trade.symbol)}</div> </div>
-                <div> <div className="text-sm text-gray-400">Take Profit 2</div> <div className="text-md font-mono text-green-300">{formatPrice(trade.tp2, trade.symbol)}</div> </div>
-                <div> <div className="text-sm text-gray-400">Adaptive SL (ATR)</div> <div className="text-md font-mono text-red-400">{formatPrice(trade.sl, trade.symbol)}</div> </div>
-            </div>
+            <span className="mt-2 text-xl font-bold text-white">{signal.confidence}/10</span>
         </div>
-    );
-};
+      </div>
 
-const EntryModal = ({ trade, onClose, onConfirm }) => {
-    const [entryPrice, setEntryPrice] = useState(trade.entryZone[0].toFixed(5));
-    const inputRef = useRef(null);
-
-    useEffect(() => {
-        if(inputRef.current) {
-            inputRef.current.focus();
-            inputRef.current.select();
-        }
-    }, []);
-
-    const handleConfirm = () => {
-        const price = parseFloat(entryPrice);
-        if(!isNaN(price) && price > 0) {
-            onConfirm(price);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-gray-900 border border-green-500 rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
-                <h2 className="text-xl font-bold text-white mb-4">Confirm Entry for {trade.symbol.replace('USDT','')}</h2>
-                <p className="text-sm text-gray-400 mb-2">System suggests entry between {formatPrice(trade.entryZone[0], trade.symbol)} and {formatPrice(trade.entryZone[1], trade.symbol)}.</p>
-                <div className="mb-4">
-                    <label htmlFor="entryPrice" className="block text-sm font-medium text-gray-300 mb-1">Your Entry Price</label>
-                    <input
-                        ref={inputRef}
-                        type="number"
-                        id="entryPrice"
-                        value={entryPrice}
-                        onChange={(e) => setEntryPrice(e.target.value)}
-                        className="w-full bg-gray-800 border border-gray-600 rounded-md p-2 text-white font-mono text-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                    />
-                </div>
-                <div className="flex space-x-4">
-                    <button onClick={onClose} className="w-full py-2 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-500 transition-colors">Cancel</button>
-                    <button onClick={handleConfirm} className="w-full py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-500 transition-colors">Confirm</button>
-                </div>
+      {/* Card Footer: Reason & Risk */}
+      <div className="p-5 border-t border-gray-700 bg-gray-800/50">
+         <div className={`flex items-start space-x-3 p-3 rounded-md mb-4 ${riskColor.replace('text', 'bg')}/10`}>
+            <div className={`mt-1 ${riskColor}`}><AlertIcon /></div>
+            <div>
+                <h4 className="font-semibold text-white">Directional Risk Note</h4>
+                <p className={`text-sm ${riskColor}`}>{signal.riskNote}</p>
             </div>
         </div>
-    );
+        <div>
+          <h4 className="font-semibold text-white mb-1">Reason</h4>
+          <p className="text-sm text-gray-400">{signal.reason}</p>
+        </div>
+      </div>
+    </div>
+  );
 };
+
+const LoadingSpinner = () => (
+    <div className="flex justify-center items-center p-10">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-cyan-400"></div>
+    </div>
+);
 
 // --- Main App Component ---
+
 export default function App() {
-    const [trades, setTrades] = useState([]);
-    const [openPositions, setOpenPositions] = useState([]);
-    const [selectedTrade, setSelectedTrade] = useState(null);
-    const [tradeToConfirm, setTradeToConfirm] = useState(null);
-    const [currentTime, setCurrentTime] = useState(new Date());
-    const [lastUpdated, setLastUpdated] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [db, setDb] = useState(null);
-    const [auth, setAuth] = useState(null);
-    const [userId, setUserId] = useState(null);
+  const [signals, setSignals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-    // --- Firebase Initialization and Auth ---
-    useEffect(() => {
-        const app = initializeApp(firebaseConfig);
-        const firestore = getFirestore(app);
-        const authInstance = getAuth(app);
-        setDb(firestore);
-        setAuth(authInstance);
-
-        const signIn = async () => {
-            try {
-                if (initialAuthToken) {
-                    await signInWithCustomToken(authInstance, initialAuthToken);
-                } else {
-                    await signInAnonymously(authInstance);
-                }
-            } catch (error) {
-                console.error("Firebase sign-in error:", error);
-            }
-        };
-        signIn();
-
-        const unsubscribe = onAuthStateChanged(authInstance, (user) => {
-            if (user) {
-                setUserId(user.uid);
-            } else {
-                setUserId(null);
-            }
-        });
-        return () => unsubscribe();
-    }, []);
-
-    // --- Firestore Real-time Sync for Positions ---
-    useEffect(() => {
-        if (db && userId) {
-            const positionsCollectionPath = `artifacts/${appId}/users/${userId}/positions`;
-            const q = collection(db, positionsCollectionPath);
-            const unsubscribe = onSnapshot(q, (querySnapshot) => {
-                const positions = [];
-                querySnapshot.forEach((doc) => {
-                    positions.push({ id: doc.id, ...doc.data() });
-                });
-                setOpenPositions(positions);
-            });
-            return () => unsubscribe();
-        }
-    }, [db, userId]);
-
-    const handleTakeTrade = (trade) => {
-        setSelectedTrade(null);
-        setTradeToConfirm(trade);
+  useEffect(() => {
+    const getSignals = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await fetchSignalsFromAPI();
+        setSignals(data);
+      } catch (err) {
+        setError('Failed to fetch signals. Please try again later.');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    const handleConfirmEntry = async (entryPrice) => {
-        if (db && userId && tradeToConfirm) {
-            const newPosition = {
-                symbol: tradeToConfirm.symbol,
-                direction: tradeToConfirm.direction,
-                entryPrice: entryPrice,
-                currentPrice: entryPrice,
-                quantity: 1000 / entryPrice,
-                createdAt: serverTimestamp(),
-            };
-            const positionsCollectionPath = `artifacts/${appId}/users/${userId}/positions`;
-            await addDoc(collection(db, positionsCollectionPath), newPosition);
-        }
-        setTradeToConfirm(null);
-    };
+    getSignals();
     
-    const handleRemovePosition = async (id) => {
-        if (db && userId) {
-            const docPath = `artifacts/${appId}/users/${userId}/positions/${id}`;
-            await deleteDoc(doc(db, docPath));
-        }
-    };
+    // Set an interval to fetch new signals every 5 minutes (300000 ms)
+    const intervalId = setInterval(getSignals, 300000);
 
-    const fetchData = () => {
-        setIsLoading(true);
-        setTimeout(() => {
-            const formattedTrades = transformApiData(MOCK_MARKET_SCAN_RESULTS);
-            setTrades(formattedTrades);
-            setLastUpdated(new Date());
-            setIsLoading(false);
-        }, 500);
-    };
+    // Cleanup interval on component unmount
+    return () => clearInterval(intervalId);
+  }, []);
 
-    useEffect(() => { fetchData(); const i = setInterval(fetchData, 60000); return () => clearInterval(i); }, []);
-    useEffect(() => { const t = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(t); }, []);
-    const handleSelectTrade = (trade) => setSelectedTrade(trade);
-    const handleCloseModal = () => setSelectedTrade(null);
-
-    return (
-        <div className="min-h-screen bg-gray-900 text-white font-sans bg-grid-gray-700/[0.2]">
-            <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/80"></div>
-            <main className="container mx-auto px-4 py-8 relative z-10">
-                <header className="flex flex-col md:flex-row justify-between items-center mb-4 border-b border-gray-700/50 pb-4">
-                    <div className="flex items-center space-x-3 mb-4 md:mb-0">
-                        <Target className="w-10 h-10 text-cyan-400 animate-pulse" />
-                        <div> <h1 className="text-3xl font-bold tracking-wider">MARKET SNIPER</h1> <p className="text-cyan-400 text-sm">Reversal Hunter Engine v7.0</p> </div>
-                    </div>
-                    <div className="text-center md:text-right">
-                         <div className="font-mono text-lg">{currentTime.toLocaleDateString()}</div>
-                         <div className="font-mono text-2xl text-gray-300">{currentTime.toLocaleTimeString()}</div>
-                         {lastUpdated && <div className="text-xs text-gray-500 mt-1">Last Scan: {lastUpdated.toLocaleTimeString()}</div>}
-                    </div>
-                </header>
-                
-                <div className="mb-8 bg-gray-800/60 rounded-lg p-4 border border-gray-700">
-                    <div className="flex items-center space-x-3 mb-3">
-                        <FolderOpen className="w-6 h-6 text-cyan-400" />
-                        <h2 className="text-xl font-semibold text-gray-200">Open Positions (Live Sync)</h2>
-                    </div>
-                    <div className="grid grid-cols-5 gap-4 text-xs text-gray-400 font-semibold px-3 pb-2 border-b border-gray-600">
-                        <span>PAIR</span><span>ENTRY</span><span>MARK</span><span>PNL</span><span className="text-right">CLOSE</span>
-                    </div>
-                    {!userId && <div className="text-center py-4 text-gray-500">Connecting to sync service...</div>}
-                    {userId && openPositions.length === 0 && <div className="text-center py-4 text-gray-500">No open positions.</div>}
-                    {userId && openPositions.map(pos => <PositionRow key={pos.id} position={pos} onRemove={handleRemovePosition} />)}
-                </div>
-
-                <div className="space-y-6">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-semibold text-gray-300 tracking-wide">High-Conviction Targets</h2>
-                        <button onClick={fetchData} disabled={isLoading} className="text-gray-400 hover:text-white disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"> <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} /> </button>
-                    </div>
-                    {isLoading && <div className="text-center py-10 text-gray-400">Scanning Market...</div>}
-                    {!isLoading && trades.length === 0 && <div className="text-center py-10 text-gray-500">No high-conviction opportunities detected.</div>}
-                    {!isLoading && trades.map(trade => <TradeCard key={trade.id} trade={trade} onSelect={handleSelectTrade} />)}
-                </div>
-
-                <footer className="text-center mt-12 py-6 border-t border-gray-700/50">
-                    <p className="text-gray-500 text-sm">For educational and informational purposes only. Trading involves substantial risk.</p>
-                    <p className="text-gray-600 text-xs mt-1">Market Sniper v7.0 - Reversal Hunter Engine</p>
-                </footer>
-            </main>
-            {selectedTrade && <DetailModal trade={selectedTrade} onClose={handleCloseModal} onTakeTrade={handleTakeTrade} />}
-            {tradeToConfirm && <EntryModal trade={tradeToConfirm} onClose={() => setTradeToConfirm(null)} onConfirm={handleConfirmEntry} />}
-        </div>
-    );
+  return (
+    <div className="bg-gray-900 min-h-screen font-sans">
+      <Header />
+      <main className="container mx-auto p-4 md:p-8">
+        {loading && signals.length === 0 ? (
+          <LoadingSpinner />
+        ) : error ? (
+          <div className="text-center text-red-500 bg-red-900/50 p-4 rounded-lg">{error}</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {signals.map((signal, index) => (
+              <SignalCard key={index} signal={signal} />
+            ))}
+          </div>
+        )}
+      </main>
+      <footer className="text-center py-4 text-gray-500 text-xs">
+        <p>Market Sniper v5.4 | Analysis Date: 19th July 2025</p>
+        <p className="mt-1">This is not financial advice. Trading involves significant risk.</p>
+      </footer>
+    </div>
+  );
 }
