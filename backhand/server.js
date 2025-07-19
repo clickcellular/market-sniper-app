@@ -16,7 +16,7 @@ const COINGLASS_API_KEY = 'b78677a9f19c4f1b890a4a920ab2ba48';
 const POLLING_INTERVAL = 30 * 60 * 1000; // 30 minutes
 const MIN_VOLUME = 25000000; // $25M
 const MAX_24H_CHANGE = 8; // Reject moves > 8%
-const MIN_CONFIDENCE = 9.5;
+const MIN_CONFIDENCE = 9.0; // Lowered confidence threshold to 90%
 
 // --- IN-MEMORY DATABASE & STATE ---
 let tradeDatabase = [];
