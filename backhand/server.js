@@ -149,7 +149,7 @@ async function runAnalysisCycle() {
     if (newSetups.length > 0) {
         lastSignalTime = new Date().toISOString();
         for (const setup of newSetups) {
-            const existing = tradeDatabase.find(t => t.symbol === setup.symbol && t.status === 'pending');
+            const existing = tradeDatabase.find(t => t.symbol === setup.symbol && (t.status === 'pending' || t.status === 'active'));
             if (!existing) {
                 const newTrade = { ...setup, id: nextId++, status: 'pending', pnl: null, alertMessage: null, entryPrice: null };
                 tradeDatabase.push(newTrade);
