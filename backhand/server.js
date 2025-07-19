@@ -6,7 +6,7 @@
 
 const express = require('express');
 const cors = require('cors');
-const fetch = require('node-fetch');
+// We will now use a dynamic import for node-fetch inside the helper function.
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -25,6 +25,9 @@ let lastSignalTime = null; // Tracks when the last new signal was found
 
 // --- API HELPER ---
 async function coinglassFetch(endpoint) {
+    // FIX: Use dynamic import to ensure compatibility with different node-fetch versions.
+    const fetch = (await import('node-fetch')).default;
+    
     const url = `https://open-api.coinglass.com/public/v2/${endpoint}`;
     const options = { method: 'GET', headers: { 'cg-api-key': COINGLASS_API_KEY } };
     try {
